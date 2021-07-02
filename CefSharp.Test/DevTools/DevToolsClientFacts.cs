@@ -248,5 +248,31 @@ namespace CefSharp.Test.DevTools
                 Assert.Equal("89.0.4389.114", highEntropyValuesResult.uaFullVersion);
             }
         }
+
+
+        [Fact]
+        public async Task asdfasfd()
+        {
+            using (var browser = new ChromiumWebBrowser("about:blank", automaticallyCreateBrowser: false))
+            {
+                await browser.CreateBrowserAsync();
+
+                using (var devToolsClient = browser.GetDevToolsClient())
+                {
+                    await devToolsClient.Network.EnableAsync();
+
+                    devToolsClient.Network.RequestWillBeSent += Network_RequestWillBeSent;
+                    devToolsClient.Network.RequestWillBeSent += Network_RequestWillBeSent;
+
+
+                    await browser.LoadUrlAsync("www.google.com");
+                }
+            }
+        }
+
+        private void Network_RequestWillBeSent(object sender, RequestWillBeSentEventArgs e)
+        {
+            
+        }
     }
 }

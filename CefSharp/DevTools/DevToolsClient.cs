@@ -6,6 +6,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.Serialization.Json;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -26,6 +27,7 @@ namespace CefSharp.DevTools
         private static int lastMessageId = 0;
 
         private readonly ConcurrentDictionary<int, SyncContextTaskCompletionSource<DevToolsMethodResponse>> queuedCommandResults = new ConcurrentDictionary<int, SyncContextTaskCompletionSource<DevToolsMethodResponse>>();
+        private readonly ConcurrentDictionary<string, List<Action<DevToolsEventArgs, Stream>>> eventHandlers = new ConcurrentDictionary<string, List<Action<DevToolsEventArgs, Stream>>>();
         private IBrowser browser;
         private IRegistration devToolsRegistration;
         private bool devToolsAttached;
@@ -34,7 +36,7 @@ namespace CefSharp.DevTools
         /// <summary>
         /// DevToolsEvent
         /// </summary>
-        public EventHandler<DevToolsEventArgs> DevToolsEvent;
+        public event EventHandler<DevToolsEventArgs> DevToolsEvent;
 
         /// <summary>
         /// Capture the current <see cref="SynchronizationContext"/> so
@@ -83,6 +85,67 @@ namespace CefSharp.DevTools
             this.devToolsRegistration = devToolsRegistration;
         }
 
+        public IDisposable RegisterEventHandler<T>(string eventName, Action<T> eventHandler) where T : DevToolsDomainEventArgsBase
+        {
+            var list = eventHandlers.GetOrAdd(eventName, _ => new List<Action<DevToolsEventArgs, Stream>>(1));
+
+            Action<DevToolsEventArgs, Stream> action = (args, stream) =>
+            {
+                if (typeof(T) == typeof(DevToolsDomainEventArgsBase))
+                {
+                    eventHandler((T)(object)args);
+                }
+                else if (typeof(T) == typeof(DevToolsEventArgs))
+                {
+                    if (args.ParametersAsJsonString == null)
+                    {
+                        var memoryStream = new MemoryStream();
+                        stream.CopyTo(memoryStream);
+
+                        args.ParametersAsJsonString = Encoding.UTF8.GetString(memoryStream.ToArray());
+                    }
+
+                    eventHandler((T)(object)args);
+                }
+                else
+                {
+                    eventHandler(DeserializeJson<T>(stream));
+                }
+            };
+
+            list.Add(action);
+
+            return new EventRegistration(eventName, action, eventHandlers);
+        }
+
+        private sealed class EventRegistration : IDisposable
+        {
+            private readonly string _eventName;
+            private readonly Action<DevToolsEventArgs, Stream> _action;
+            private readonly ConcurrentDictionary<string, List<Action<DevToolsEventArgs, Stream>>> _eventHandlers;
+
+            public EventRegistration(string eventName, Action<DevToolsEventArgs, Stream> action, ConcurrentDictionary<string, List<Action<DevToolsEventArgs, Stream>>> eventHandlers)
+            {
+                _eventName = eventName;
+                _action = action;
+                _eventHandlers = eventHandlers;
+            }
+
+            public void Dispose()
+            {
+                List<Action<DevToolsEventArgs, Stream>> list;
+                if (_eventHandlers.TryGetValue(_eventName, out list))
+                {
+                    list.Remove(_action);
+
+                    if (list.Count == 0)
+                    {
+                        _eventHandlers.TryRemove(_eventName, out _);
+                    }
+                }
+            }
+        }
+
         /// <summary>
         /// Execute a method call over the DevTools protocol. This method can be called on any thread.
         /// See the DevTools protocol documentation at https://chromedevtools.github.io/devtools-protocol/ for details
@@ -121,7 +184,7 @@ namespace CefSharp.DevTools
                 {
                     return new DevToolsMethodResponse { Success = false };
                 }
-                else if(returnedMessageId != messageId)
+                else if (returnedMessageId != messageId)
                 {
                     //For some reason our message Id's don't match
                     throw new DevToolsClientException(string.Format("Generated MessageId {0} doesn't match returned Message Id {1}", returnedMessageId, messageId));
@@ -175,16 +238,33 @@ namespace CefSharp.DevTools
         {
             var evt = DevToolsEvent;
 
+            DevToolsEventArgs args = null;
+
             //Only parse the data if we have an event handler
             if (evt != null)
             {
-                //TODO: Improve this
                 var memoryStream = new MemoryStream((int)parameters.Length);
                 parameters.CopyTo(memoryStream);
 
                 var paramsAsJsonString = Encoding.UTF8.GetString(memoryStream.ToArray());
 
-                evt(this, new DevToolsEventArgs(method, paramsAsJsonString));
+                args = new DevToolsEventArgs(method, paramsAsJsonString);
+
+                evt(this, args);
+            }
+
+            List<Action<DevToolsEventArgs, Stream>> list;
+            if (eventHandlers.TryGetValue(method, out list))
+            {
+                if (args == null)
+                {
+                    args = new DevToolsEventArgs(method);
+                }
+
+                foreach (var eventHandler in list.ToArray()) // create copy!
+                {
+                    eventHandler(args, parameters);
+                }
             }
         }
 
@@ -247,6 +327,27 @@ namespace CefSharp.DevTools
                     }), null);
                 }
             }
+        }
+
+        internal static T DeserializeJson<T>(Stream stream)
+        {
+#if NETCOREAPP
+            var options = new System.Text.Json.JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true,
+                IgnoreNullValues = true,
+            };
+
+            options.Converters.Add(new Internals.Json.JsonEnumConverterFactory());
+
+            return System.Text.Json.JsonSerializer.Deserialize<T>(ParametersAsJsonString, options);
+#else
+            var settings = new DataContractJsonSerializerSettings();
+            settings.UseSimpleDictionaryFormat = true;
+
+            var dcs = new DataContractJsonSerializer(typeof(T), settings);
+            return (T)dcs.ReadObject(stream);
+#endif
         }
     }
 }
