@@ -469,7 +469,7 @@ namespace CefSharp
         /// <param name="methodName">The javascript method name to execute.</param>
         /// <param name="args">the arguments to be passed as params to the method. Args are encoded using
         /// <see cref="EncodeScriptParam"/>, you can provide a custom implementation if you require one.</param>
-        public static void ExecuteScriptAsync(this IWebBrowser browser, string methodName, params object[] args)
+        public static void ExecuteScriptAsync(this IChromiumWebBrowserBase browser, string methodName, params object[] args)
         {
             browser.BrowserCore.ExecuteScriptAsync(methodName, args);
         }
@@ -877,7 +877,7 @@ namespace CefSharp
         /// <returns>
         /// Cookie Manager.
         /// </returns>
-        public static ICookieManager GetCookieManager(this IWebBrowser browser, ICompletionCallback callback = null)
+        public static ICookieManager GetCookieManager(this IChromiumWebBrowserBase browser, ICompletionCallback callback = null)
         {
             var host = browser.GetBrowserHost();
 
@@ -1430,7 +1430,7 @@ namespace CefSharp
         /// <returns>
         /// <see cref="Task{JavascriptResponse}"/> that can be awaited to perform the script execution.
         /// </returns>
-        public static Task<JavascriptResponse> EvaluateScriptAsync(this IWebBrowser browser, string methodName, params object[] args)
+        public static Task<JavascriptResponse> EvaluateScriptAsync(this IChromiumWebBrowserBase browser, string methodName, params object[] args)
         {
             return browser.EvaluateScriptAsync(null, methodName, args);
         }
@@ -1448,7 +1448,7 @@ namespace CefSharp
         /// <returns>
         /// <see cref="Task{JavascriptResponse}"/> that can be awaited to perform the script execution.
         /// </returns>
-        public static Task<JavascriptResponse> EvaluateScriptAsync(this IWebBrowser browser, TimeSpan? timeout, string methodName, params object[] args)
+        public static Task<JavascriptResponse> EvaluateScriptAsync(this IChromiumWebBrowserBase browser, TimeSpan? timeout, string methodName, params object[] args)
         {
             var script = GetScriptForJavascriptMethodWithArgs(methodName, args);
 
