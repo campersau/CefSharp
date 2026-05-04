@@ -63,7 +63,9 @@ namespace CefSharp
 
             //Multiple CefBrowserWrappers created when opening popups
             auto browserId = browser->GetIdentifier();
-            _browserWrappers->TryAdd(browserId, wrapper);
+            auto result = _browserWrappers->TryAdd(browserId, wrapper);
+
+            LOG(ERROR) << StringUtils::ToNative("Added BrowserWrapper in OnBrowserCreated BrowserId: " + browserId + " Added: " + result + " HasExtraInfo: " + !!extraInfo.get()).ToString();
 
             static gcroot<Func<int, JavascriptBindingSettings^>^> factory =
                 gcnew Func<int, JavascriptBindingSettings^>(CefAppUnmanagedWrapper::JavascriptBindingSettingsFactory);
@@ -136,15 +138,24 @@ namespace CefSharp
 
         void CefAppUnmanagedWrapper::OnBrowserDestroyed(CefRefPtr<CefBrowser> browser)
         {
+            auto browserId = browser->GetIdentifier();
+
+            LOG(ERROR) << StringUtils::ToNative("Browser destroyed BrowserId: " + browserId).ToString();
+
             CefBrowserWrapper^ wrapper;
-            if (_browserWrappers->TryRemove(browser->GetIdentifier(), wrapper))
+            if (_browserWrappers->TryRemove(browserId, wrapper))
             {
+                LOG(ERROR) << StringUtils::ToNative("Removed BrowserWrapper in OnBrowserDestroyed BrowserId: " + browserId).ToString();
+
                 _onBrowserDestroyed->Invoke(wrapper);
                 delete wrapper;
             }
 
-            // Don't remove javascript settings because cef is unreliable in calling OnBrowserCreated/OnBrowserDestroyed consistently:
-            // https://github.com/cefsharp/CefSharp/issues/5228
+            JavascriptBindingSettings^ javascriptBindingSettings;
+            if (_browserJavascriptBindingSettings->TryRemove(browserId, javascriptBindingSettings))
+            {
+                delete javascriptBindingSettings;
+            }
         };
 
         void CefAppUnmanagedWrapper::OnContextCreated(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, CefRefPtr<CefV8Context> context)
